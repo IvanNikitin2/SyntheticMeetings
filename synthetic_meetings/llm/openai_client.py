@@ -2,12 +2,15 @@ from __future__ import annotations
 import sys
 from openai import OpenAI, APIError
 
+_TOKENS_PER_SECTION = 1500
+_MAX_CONTINUATIONS = 2
+
 
 def _call(client: OpenAI, system: str, messages: list[dict]) -> tuple[str, str]:
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
-            max_tokens=4096,
+            max_tokens=_TOKENS_PER_SECTION,
             temperature=0.85,
             frequency_penalty=0.3,
             messages=[{"role": "system", "content": system}] + messages,
@@ -23,26 +26,29 @@ def _call(client: OpenAI, system: str, messages: list[dict]) -> tuple[str, str]:
 def generate_section(api_key: str, system_prompt: str, section_prompt: str, context_tail: str = "") -> str:
     client = OpenAI(api_key=api_key)
 
+    messages = [{"role": "user", "content": section_prompt}]
     if context_tail:
         messages = [
             {"role": "user", "content": section_prompt},
             {"role": "assistant", "content": context_tail},
-            {"role": "user", "content": "Continue writing the transcript from exactly where you stopped. Do not repeat anything already written. Do not add any heading or label."},
+            {"role": "user", "content": "Continue the transcript from exactly where you stopped. Do not repeat anything already written. Do not add any heading or label."},
         ]
-    else:
-        messages = [{"role": "user", "content": section_prompt}]
 
     full_content = ""
+    continuations = 0
     while True:
         content, finish_reason = _call(client, system_prompt, messages)
         full_content += content
 
-        if finish_reason == "stop":
+        if finish_reason == "stop" or continuations >= _MAX_CONTINUATIONS:
             break
 
         if finish_reason == "length":
-            messages = messages + [
-                {"role": "assistant", "content": full_content},
+            continuations += 1
+            tail = full_content[-800:]
+            messages = [
+                {"role": "user", "content": section_prompt},
+                {"role": "assistant", "content": tail},
                 {"role": "user", "content": "Continue the transcript from exactly where you stopped. Do not repeat anything. Do not add a heading."},
             ]
         else:

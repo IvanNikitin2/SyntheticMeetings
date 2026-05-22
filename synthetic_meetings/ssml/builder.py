@@ -27,10 +27,12 @@ Format every line as exactly "Name: spoken text" — nothing else.
 
 RULES:
 - Output ONLY "Name: text" lines. No stage directions, no section headers, no markdown, no XML.
-- Every speaker turn must be at least 3 full sentences. Never write a one-liner unless it is \
-a genuine short interruption like "Right." or "Agreed."
-- Speakers must ask follow-up questions, disagree, share specific examples, and build on each other's points.
-- Do NOT summarize or wrap up a topic early. Exhaust each subject before moving on.
+- Every speaker turn must be 3–5 full sentences. \
+Never write fewer than 2 sentences unless it is a genuine one-word interruption like "Right." or "Agreed."
+- Speakers must ask follow-up questions, disagree, share specific examples, reference earlier points, \
+and elaborate at length before yielding the floor.
+- Do NOT summarize or wrap up a topic early. Exhaust each subject fully before moving on.
+- Think of this as a verbatim transcript of a real recorded meeting — people talk a lot.
 - Use the exact speaker names provided. Do not introduce new speakers.
 - Filler words: {filler_words}.
 - Realism: {realism_level}.
@@ -64,13 +66,18 @@ def build_section_prompts(preset: MeetingPreset) -> list[SectionPrompt]:
     names = ", ".join(p.name for p in preset.participants)
 
     num_agenda = max(len(preset.agenda_items), 1)
-    opening_minutes = max(1.5, total_minutes * 0.12)
-    closing_minutes = max(2.0, total_minutes * 0.18)
+    opening_minutes = total_minutes * 0.12
+    closing_minutes = total_minutes * 0.18
     body_minutes = total_minutes - opening_minutes - closing_minutes
     per_agenda_minutes = body_minutes / num_agenda
 
+    # Turns per minute calibrated so total output matches duration.
+    # At 130 wpm, 4 sentences/turn ≈ 40 words/turn ≈ 18s/turn → ~3.3 turns/minute.
+    # We use 3 to stay safely under target.
+    turns_per_minute = 4.5
+
     def turns(minutes: float) -> int:
-        return max(8, int(minutes * 4))
+        return max(4, int(minutes * turns_per_minute))
 
     sections: list[SectionPrompt] = []
 
@@ -78,8 +85,9 @@ def build_section_prompts(preset: MeetingPreset) -> list[SectionPrompt]:
         f"Write the OPENING of a {total_minutes}-minute meeting.\n"
         f"Topic: {preset.topic} | Industry: {preset.vertical} | Formality: {preset.formality} | Tone: {cs.tone}\n\n"
         f"Speakers:\n{speakers}\n\n"
-        f"This section must have at least {turns(opening_minutes)} speaker turns.\n"
-        f"Include: greeting, quick check-in, each person gives a detailed status update (3–5 sentences each).\n"
+        f"Write at least {turns(opening_minutes)} speaker turns.\n"
+        f"Each turn must be 3–5 sentences.\n"
+        f"Include: greeting, quick check-in, each person gives a brief status update.\n"
         f"Do NOT start discussing the agenda yet. Do NOT wrap up.\n"
         f"Use names: {names}. Format: 'Name: text'."
     )
@@ -88,21 +96,18 @@ def build_section_prompts(preset: MeetingPreset) -> list[SectionPrompt]:
     for i, item in enumerate(preset.agenda_items):
         is_last = i == len(preset.agenda_items) - 1
         extra = (
-            f"Also surface {ai.count} action items of {ai.complexity} complexity naturally in this section — "
-            f"someone must volunteer or be assigned each one explicitly. "
+            f"Surface {ai.count} action items of {ai.complexity} complexity — assign each one explicitly. "
             if is_last else ""
         )
         item_prompt = (
-            f"Continue the meeting transcript. The previous section just ended.\n"
+            f"Continue the meeting transcript.\n"
             f"Now write the discussion of AGENDA ITEM: '{item}'.\n\n"
             f"Speakers:\n{speakers}\n\n"
-            f"This section must have at least {turns(per_agenda_minutes)} speaker turns.\n"
-            f"Requirements:\n"
-            f"- Multiple rounds of back-and-forth per sub-point. Do not let anyone just agree and move on.\n"
-            f"- At least 2 speakers must raise a concern, objection, or clarifying question.\n"
-            f"- Include specific numbers, names, dates, or examples to make it realistic.\n"
+            f"Write at least {turns(per_agenda_minutes)} speaker turns.\n"
+            f"Each turn must be 3–5 sentences.\n"
+            f"Include back-and-forth, at least one concern or question, specific examples.\n"
             f"{extra}"
-            f"Do NOT wrap up the meeting. Do NOT move to a different agenda item.\n"
+            f"Do NOT wrap up the meeting. Do NOT move to another agenda item.\n"
             f"Format: 'Name: text'."
         )
         sections.append(SectionPrompt(f"Agenda: {item}", item_prompt, turns(per_agenda_minutes)))
@@ -111,12 +116,9 @@ def build_section_prompts(preset: MeetingPreset) -> list[SectionPrompt]:
         f"Continue the meeting transcript. All agenda items have been discussed.\n"
         f"Now write the CLOSING section.\n\n"
         f"Speakers:\n{speakers}\n\n"
-        f"This section must have at least {turns(closing_minutes)} speaker turns.\n"
-        f"Include:\n"
-        f"- Recap of all decisions made\n"
-        f"- Explicit assignment of all {ai.count} action items (owner, deadline)\n"
-        f"- Each participant confirms their action item in their own words\n"
-        f"- Natural farewell and sign-off\n"
+        f"Write at least {turns(closing_minutes)} speaker turns.\n"
+        f"Each turn must be 3–5 sentences.\n"
+        f"Include: decisions recap, assignment of {ai.count} action items with owners and deadlines, farewell.\n"
         f"This is the final section. End the meeting naturally.\n"
         f"Format: 'Name: text'."
     )

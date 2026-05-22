@@ -7,7 +7,7 @@ def _call(client: anthropic.Anthropic, system: str, messages: list[dict]) -> tup
     try:
         response = client.messages.create(
             model="claude-opus-4-7",
-            max_tokens=4096,
+            max_tokens=1500,
             system=system,
             messages=messages,
         )
@@ -33,16 +33,20 @@ def generate_section(api_key: str, system_prompt: str, section_prompt: str, cont
         messages = [{"role": "user", "content": section_prompt}]
 
     full_content = ""
+    continuations = 0
     while True:
         content, stop_reason = _call(client, system_prompt, messages)
         full_content += content
 
-        if stop_reason == "end_turn":
+        if stop_reason == "end_turn" or continuations >= 2:
             break
 
         if stop_reason == "max_tokens":
-            messages = messages + [
-                {"role": "assistant", "content": full_content},
+            continuations += 1
+            tail = full_content[-800:]
+            messages = [
+                {"role": "user", "content": section_prompt},
+                {"role": "assistant", "content": tail},
                 {"role": "user", "content": "Continue the transcript from exactly where you stopped. Do not repeat anything. Do not add a heading."},
             ]
         else:

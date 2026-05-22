@@ -53,8 +53,8 @@ class MeetingPreset(BaseModel):
     @field_validator("duration_minutes")
     @classmethod
     def valid_duration(cls, v: int) -> int:
-        if not (15 <= v <= 30):
-            raise ValueError("duration_minutes must be between 15 and 30.")
+        if not (5 <= v <= 60):
+            raise ValueError("duration_minutes must be between 5 and 60.")
         return v
 
 

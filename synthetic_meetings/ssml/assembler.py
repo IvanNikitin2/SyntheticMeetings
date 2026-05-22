@@ -29,32 +29,56 @@ def _wrap_in_voice(text: str, participant: Participant) -> str:
     return f'  <voice name="{participant.voice}">\n    {inner}\n  </voice>'
 
 
+_MAX_WORDS_PER_TURN = 100
+
+
+def _split_text(text: str) -> list[str]:
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    chunks: list[str] = []
+    current: list[str] = []
+    word_count = 0
+
+    for sentence in sentences:
+        sentence_words = len(sentence.split())
+        if word_count + sentence_words > _MAX_WORDS_PER_TURN and current:
+            chunks.append(" ".join(current))
+            current = [sentence]
+            word_count = sentence_words
+        else:
+            current.append(sentence)
+            word_count += sentence_words
+
+    if current:
+        chunks.append(" ".join(current))
+
+    return chunks
+
+
 def _parse_dialogue_lines(raw: str, name_to_participant: dict[str, Participant]) -> list[tuple[Participant, str]]:
     turns: list[tuple[Participant, str]] = []
-    current_participant: Participant | None = None
-    current_lines: list[str] = []
 
     for line in raw.splitlines():
         stripped = line.strip()
 
-        if not stripped or stripped.startswith("//"):
+        if not stripped or stripped.startswith("//") or stripped.startswith("[WORDS"):
             continue
 
         colon_pos = stripped.find(":")
-        if colon_pos > 0:
-            possible_name = stripped[:colon_pos].strip().lower()
-            if possible_name in name_to_participant:
-                if current_participant and current_lines:
-                    turns.append((current_participant, " ".join(current_lines)))
-                current_participant = name_to_participant[possible_name]
-                current_lines = [stripped[colon_pos + 1:].strip()]
-                continue
+        if colon_pos <= 0:
+            continue
 
-        if current_participant:
-            current_lines.append(stripped)
+        possible_name = stripped[:colon_pos].strip().lower()
+        if possible_name not in name_to_participant:
+            continue
 
-    if current_participant and current_lines:
-        turns.append((current_participant, " ".join(current_lines)))
+        participant = name_to_participant[possible_name]
+        text = stripped[colon_pos + 1:].strip()
+        if not text:
+            continue
+
+        for chunk in _split_text(text):
+            if chunk:
+                turns.append((participant, chunk))
 
     return turns
 

@@ -63,9 +63,11 @@ def main() -> None:
     all_dialogue_parts: list[str] = []
     context_tail = ""
 
-    for section in sections:
-        print(f"  Generating: {section.label}")
+    for i, section in enumerate(sections, 1):
+        print(f"  [{i}/{len(sections)}] {section.label}...", end=" ", flush=True)
         text = generate_section(api_key, system_prompt, section.prompt, context_tail)
+        words = len(text.split())
+        print(f"{words} words")
         all_dialogue_parts.append(text)
         context_tail = text[-_CONTEXT_TAIL_CHARS:]
 

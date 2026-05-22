@@ -1,0 +1,101 @@
+meeting_preset:
+  name: startup_standup
+  vertical: startup
+  topic: sprint planning
+  duration_minutes: 15 #W +-2/3 minutes (5-60 minutes allowed)
+  agenda_items:
+    - Review last sprint velocity
+    - Blockers and risks
+    - Goals for this sprint
+
+  # Options: casual | professional | formal
+  formality: casual
+
+  # How often speakers interrupt or talk sover each other.
+  # Options: none | low | medium | high
+  interruption_frequency: low
+
+  # Participants — 2 to 4 required.
+  participants:
+
+    - role: engineering_manager
+      name: Alex
+      personality: organized, keeps the meeting on track, data-driven
+      # See the voice reference list at the bottom of this file.
+      voice: en-US-GuyNeural
+
+      # --- Optional fields ---
+      # verbosity: low | medium | high
+      verbosity: medium
+      # speaking_rate: slow | medium | fast
+      speaking_rate: medium
+      # pitch: low | default | high
+      pitch: default
+      style: professional
+      emotion: neutral
+
+    - role: frontend_engineer
+      name: Sara
+      personality: slightly stressed, detail-oriented, asks clarifying questions
+      voice: en-US-JennyNeural
+
+    - role: product_manager
+      name: Chris
+      personality: energetic, big-picture thinker, pushes for deadlines
+      voice: en-GB-SoniaNeural
+
+
+  conversation_style:
+    tone: professional
+
+    # Options: slow | medium | fast
+    pacing: medium
+
+    # How many filler words (um, uh, you know) appear.
+    # Options: none | low | moderate | high
+    filler_words: moderate
+
+    # How realistic and natural the conversation sounds.
+    # high = back-channeling, acknowledgements, brief topic drift
+    # Options: low | medium | high
+    realism_level: high
+
+    # Cosmetic overlapping speech simulation (via short turns).
+    # Options: none | low | medium
+    overlapping_speech: low
+
+  action_items:
+    # Options: low | medium | high
+    complexity: medium
+    # Number of action items to include.
+    count: 5
+
+  # ---------------------------------------------------------------
+  # Optional: override the entire system prompt sent to the LLM.
+  # If set, all style/tone/realism fields above are ignored for
+  # the system prompt — your text is used verbatim.
+  # ---------------------------------------------------------------
+  # system_prompt_override: |
+  #   You are a meeting generator. Output only Azure SSML. ...
+
+
+# ===============================================================
+# AZURE NEURAL VOICE REFERENCE
+# ===============================================================
+# Use these exact names in the 'voice' field above. For more - https://speech.microsoft.com/portal/voicegallery
+#
+#  en-US-AvaNeural          — warm, conversational female (US)
+#  en-US-AndrewNeural       — calm, professional male (US)
+#  en-US-EmmaNeural         — friendly, expressive female (US)
+#  en-US-BrianNeural        — confident, clear male (US)
+#  en-US-JennyNeural        — natural, versatile female (US)
+#  en-US-GuyNeural          — authoritative male (US)
+#  en-GB-SoniaNeural        — crisp, professional female (UK)
+#  en-GB-RyanNeural         — engaging male (UK)
+#  en-AU-NatashaNeural      — clear, natural female (AU)
+#  en-AU-WilliamNeural      — warm male (AU)
+#
+# SPEAKING STYLES (optional — set in 'style' field, voice-dependent):
+#   cheerful | sad | angry | excited | friendly |
+#   hopeful | shouting | whispering | empathetic | calm | professional
+# ===============================================================
