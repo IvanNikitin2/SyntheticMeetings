@@ -1,9 +1,14 @@
 from __future__ import annotations
 import os
 import sys
-import tempfile
-from pathlib import Path
-import azure.cognitiveservices.speech as speechsdk
+import time
+import urllib.request
+import urllib.error
+
+
+_TTS_URL = "https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
+_TOKEN_URL = "https://{region}.api.cognitive.microsoft.com/sts/v1.0/issuetoken"
+_MAX_RETRIES = 3
 
 
 def _get_azure_config() -> tuple[str, str]:
@@ -22,37 +27,49 @@ def _get_azure_config() -> tuple[str, str]:
 
 def synthesize_turn(ssml_chunk: str, turn_index: int) -> bytes:
     key, region = _get_azure_config()
+    url = _TTS_URL.format(region=region)
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp_path = tmp.name
+    headers = {
+        "Ocp-Apim-Subscription-Key": key,
+        "Content-Type": "application/ssml+xml",
+        "X-Microsoft-OutputFormat": "riff-16khz-16bit-mono-pcm",
+        "User-Agent": "SyntheticMeetings",
+    }
 
-    try:
-        speech_config = speechsdk.SpeechConfig(subscription=key, region=region)
-        speech_config.set_speech_synthesis_output_format(
-            speechsdk.SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm
-        )
+    body = ssml_chunk.encode("utf-8")
 
-        audio_config = speechsdk.audio.AudioOutputConfig(filename=tmp_path)
-        synthesizer = speechsdk.SpeechSynthesizer(
-            speech_config=speech_config,
-            audio_config=audio_config,
-        )
-
-        result = synthesizer.speak_ssml_async(ssml_chunk).get()
-
-        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-            return Path(tmp_path).read_bytes()
-
-        if result.reason == speechsdk.ResultReason.Canceled:
-            details = result.cancellation_details
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="replace")
+            if e.code == 429 and attempt < _MAX_RETRIES:
+                time.sleep(4 * attempt)
+                continue
             print(
-                f"Error: Azure TTS failed at turn {turn_index} — {details.reason}: {details.error_details}",
+                f"Error: Azure TTS HTTP {e.code} at turn {turn_index} — {error_body}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        except urllib.error.URLError as e:
+            if attempt < _MAX_RETRIES:
+                time.sleep(2 * attempt)
+                continue
+            print(
+                f"Error: Azure TTS connection failed at turn {turn_index} — {e.reason}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        except TimeoutError:
+            if attempt < _MAX_RETRIES:
+                time.sleep(2 * attempt)
+                continue
+            print(
+                f"Error: Azure TTS timed out at turn {turn_index}.",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-        print(f"Error: Azure TTS returned unexpected result at turn {turn_index}.", file=sys.stderr)
-        sys.exit(1)
-
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
+    sys.exit(1)
