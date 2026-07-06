@@ -90,25 +90,74 @@ Each speaker turn must be a `<voice>` element inside the root `<speak>` element:
 </speak>
 ```
 
-### Azure Neural Voices
+# Azure HD Voices (East US)
 
-Other voices can be found on the 
-https://speech.microsoft.com/portal/voicegallery (MORE REALISTIC, non-neural)
+If your Speech resource is in **East US (`eastus`)**, you can use Microsoft's newer **Dragon HD** voices, which sound significantly more natural than the classic `*Neural` voices.
 
-| Voice | Description |
-|---|---|
-| `en-US-AvaNeural` | Warm, conversational female (US) |
-| `en-US-AndrewNeural` | Calm, professional male (US) |
-| `en-US-EmmaNeural` | Friendly, expressive female (US) |
-| `en-US-BrianNeural` | Confident, clear male (US) |
-| `en-US-JennyNeural` | Natural, versatile female (US) |
-| `en-US-GuyNeural` | Authoritative male (US) |
-| `en-GB-SoniaNeural` | Crisp, professional female (UK) |
-| `en-GB-RyanNeural` | Engaging male (UK) |
-| `en-AU-NatashaNeural` | Clear, natural female (AU) |
-| `en-AU-WilliamNeural` | Warm male (AU) |
+## Dragon HD Voices
+
+### Female
+```text
+en-US-Ava:DragonHDLatestNeural
+en-US-Emma:DragonHDLatestNeural
+```
+
+### Male
+```text
+en-US-Andrew:DragonHDLatestNeural
+en-US-Andrew2:DragonHDLatestNeural
+en-US-Brian:DragonHDLatestNeural
+en-US-Adam:DragonHDLatestNeural
+en-US-Steffan:DragonHDLatestNeural
+en-US-Davis:DragonHDLatestNeural
+```
 
 ---
+
+## Dragon HD Omni (Newest Generation)
+
+If your Speech SDK/API version supports them, you can also try:
+
+```text
+en-US-Ava:DragonHDOmniLatestNeural
+en-US-Andrew:DragonHDOmniLatestNeural
+```
+
+These use Microsoft's newest speech model with improved prosody and more natural conversational speech.
+
+---
+
+## Classic Neural Voices (Fallback)
+
+If your application only supports the classic voice names, these remain excellent choices:
+
+### Female
+```text
+en-US-AvaNeural
+en-US-EmmaNeural
+en-US-JennyNeural
+```
+
+### Male
+```text
+en-US-AndrewNeural
+en-US-BrianNeural
+en-US-GuyNeural
+```
+
+---
+
+## Recommended Voices
+
+### Best Female
+1. `en-US-Ava:DragonHDLatestNeural`
+2. `en-US-Emma:DragonHDLatestNeural`
+3. `en-US-AvaNeural`
+
+### Best Male
+1. `en-US-Andrew:DragonHDLatestNeural`
+2. `en-US-Brian:DragonHDLatestNeural`
+3. `en-US-AndrewNeural`
 ## Troubleshooting
 
 | Error | Fix |
