@@ -6,10 +6,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from synthetic_meetings.ssml.parser import parse_ssml, derive_transcript
+from synthetic_meetings.ssml.parser import parse_ssml, derive_transcript, SpeakerTurn
 from synthetic_meetings.tts.azure_client import synthesize_turn
-from synthetic_meetings.audio.merger import merge_wav_files
+from synthetic_meetings.audio.merger import wav_bytes_to_segment, build_speaker_tracks, merge_segments, export_wav_mp3
 from synthetic_meetings.exporter import Exporter
+
+
+def _build_speaker_ssml(voice_name: str, turns: list[SpeakerTurn]) -> str:
+    blocks = []
+    for t in turns:
+        ssml = t.ssml_chunk.strip()
+        start = ssml.index(">") + 1
+        end = ssml.rindex("</speak>")
+        blocks.append(ssml[start:end].strip())
+    inner = "\n  ".join(blocks)
+    return (
+        f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">\n'
+        f'  {inner}\n'
+        f'</speak>'
+    )
 
 
 def _process_ssml_file(ssml_path: Path, output_base: Path) -> None:
@@ -17,29 +32,37 @@ def _process_ssml_file(ssml_path: Path, output_base: Path) -> None:
 
     raw_ssml = ssml_path.read_text(encoding="utf-8")
     turns = parse_ssml(raw_ssml, {})
-
     print(f"  {len(turns)} speaker turns parsed.")
 
     meeting_name = ssml_path.stem
     exporter = Exporter(output_base, meeting_name)
-
     exporter.save_ssml(raw_ssml)
     exporter.save_transcript(derive_transcript(turns))
 
     print("  Synthesizing audio via Azure TTS...")
-    speaker_wav_paths = []
+    turns_with_audio: list[tuple[str, object]] = []
     for turn in turns:
-        print(f"    Turn {turn.index:03d} — {turn.speaker_name} ({turn.voice_name})")
+        print(f"    Turn {turn.index:03d} — {turn.voice_name}")
         wav_bytes = synthesize_turn(turn.ssml_chunk, turn.index)
-        wav_path = exporter.save_speaker_wav(turn, wav_bytes)
-        speaker_wav_paths.append(wav_path)
+        seg = wav_bytes_to_segment(wav_bytes)
+        turns_with_audio.append((turn.voice_name, seg))
+
+    print("  Building speaker tracks...")
+    speaker_tracks = build_speaker_tracks(turns_with_audio)
+
+    voice_to_turns: dict[str, list[SpeakerTurn]] = {}
+    for turn in turns:
+        voice_to_turns.setdefault(turn.voice_name, []).append(turn)
+
+    for idx, (voice_name, track) in enumerate(sorted(speaker_tracks.items()), start=1):
+        speaker_ssml = _build_speaker_ssml(voice_name, voice_to_turns[voice_name])
+        exporter.save_speaker_track(idx, voice_name, track, speaker_ssml)
+        print(f"    Speaker {idx}: {voice_name}")
 
     print("  Merging audio...")
-    merge_wav_files(
-        wav_paths=speaker_wav_paths,
-        output_wav=exporter.merged_wav_path(),
-        output_mp3=exporter.merged_mp3_path(),
-    )
+    segments = [seg for _, seg in turns_with_audio]
+    combined = merge_segments(segments)
+    export_wav_mp3(combined, exporter.merged_wav_path(), exporter.merged_mp3_path())
 
     print("  Done.")
     print(exporter.summary())
