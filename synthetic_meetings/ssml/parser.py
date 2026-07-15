@@ -4,6 +4,8 @@ import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
+_SYNTH_NS = "http://www.w3.org/2001/10/synthesis"
+
 
 @dataclass
 class SpeakerTurn:
@@ -12,6 +14,18 @@ class SpeakerTurn:
     speaker_name: str
     ssml_chunk: str
     plain_text: str
+    label: str
+    spoken_text: str
+
+
+_LABEL_RE = re.compile(r"^([A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*){0,3}):\s+(.*)$", re.DOTALL)
+
+
+def _split_label(plain_text: str, fallback: str) -> tuple[str, str]:
+    m = _LABEL_RE.match(plain_text.strip())
+    if m and len(m.group(1)) <= 40:
+        return m.group(1).strip(), m.group(2).strip()
+    return fallback, plain_text.strip()
 
 
 def _strip_tags(text: str) -> str:
@@ -27,33 +41,56 @@ def _strip_tags(text: str) -> str:
     return clean
 
 
-def _voice_to_ssml_chunk(voice_el: ET.Element, namespaces: dict[str, str]) -> str:
-    ns_attrs = ""
-    for prefix, uri in namespaces.items():
-        if prefix == "":
-            ns_attrs += f' xmlns="{uri}"'
-        else:
-            ns_attrs += f' xmlns:{prefix}="{uri}"'
+def _local(tag: str) -> str:
+    return tag.split("}")[-1] if "}" in tag else tag
 
-    inner = ET.tostring(voice_el, encoding="unicode")
+
+def _find_voices_with_prosody(
+    element: ET.Element,
+    inherited_prosody: list[dict[str, str]],
+) -> list[tuple[ET.Element, list[dict[str, str]]]]:
+    found: list[tuple[ET.Element, list[dict[str, str]]]] = []
+    for child in element:
+        tag = _local(child.tag)
+        if tag == "voice":
+            found.append((child, inherited_prosody))
+        elif tag == "prosody":
+            attrs = {k: v for k, v in child.attrib.items()}
+            found.extend(_find_voices_with_prosody(child, inherited_prosody + [attrs]))
+        else:
+            found.extend(_find_voices_with_prosody(child, inherited_prosody))
+    return found
+
+
+def _strip_label_from_element(element: ET.Element, label: str) -> None:
+    prefix = f"{label}:"
+    for node in element.iter():
+        if node.text and node.text.strip():
+            stripped = node.text.lstrip()
+            if stripped.startswith(prefix):
+                remainder = stripped[len(prefix):]
+                node.text = remainder.lstrip() if remainder.strip() else " "
+            return
+
+
+def _voice_to_ssml_chunk(voice_el: ET.Element, prosody_stack: list[dict[str, str]]) -> str:
+    inner = ET.tostring(voice_el, encoding="unicode").strip()
+
+    for attrs in reversed(prosody_stack):
+        attr_str = " ".join(f'{k}="{v}"' for k, v in attrs.items())
+        voice_name = voice_el.get("name", "")
+        open_tag = f'<voice name="{voice_name}">'
+        close_tag = "</voice>"
+        body = inner[len(_voice_open_tag(inner)):].rsplit(close_tag, 1)[0]
+        inner = f'{open_tag}<prosody {attr_str}>{body}</prosody>{close_tag}'
+
     return (
-        f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"'
-        f' xml:lang="en-US"{ns_attrs}>\n  {inner}\n</speak>'
+        f'<speak version="1.0" xmlns="{_SYNTH_NS}" xml:lang="en-US">\n  {inner}\n</speak>'
     )
 
 
-def _collect_namespaces(ssml: str) -> dict[str, str]:
-    ns: dict[str, str] = {}
-    for match in re.finditer(r'xmlns(?::(\w+))?="([^"]+)"', ssml):
-        prefix = match.group(1) or ""
-        uri = match.group(2)
-        if uri != "http://www.w3.org/2001/10/synthesis":
-            ns[prefix if prefix else "extra"] = uri
-    return ns
-
-
-def _resolve_speaker_name(voice_name: str, voice_name_map: dict[str, str]) -> str:
-    return voice_name_map.get(voice_name, voice_name)
+def _voice_open_tag(voice_xml: str) -> str:
+    return voice_xml[:voice_xml.index(">") + 1]
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -73,42 +110,37 @@ def _strip_markdown_fences(text: str) -> str:
 def parse_ssml(raw_ssml: str, voice_name_map: dict[str, str]) -> list[SpeakerTurn]:
     raw_ssml = _strip_markdown_fences(raw_ssml)
 
-    extra_namespaces = _collect_namespaces(raw_ssml)
-
-    for prefix, uri in re.findall(r'xmlns:?(\w*)="([^"]+)"', raw_ssml):
-        ET.register_namespace(prefix or "", uri)
-    ET.register_namespace("", "http://www.w3.org/2001/10/synthesis")
+    ET.register_namespace("", _SYNTH_NS)
 
     try:
         root = ET.fromstring(raw_ssml)
     except ET.ParseError as e:
-        print(f"Error: LLM returned invalid XML — {e}", file=sys.stderr)
+        print(f"Error: SSML file has invalid XML — {e}", file=sys.stderr)
         print("Raw output (first 500 chars):", file=sys.stderr)
         print(raw_ssml[:500], file=sys.stderr)
         sys.exit(1)
 
-    local_name = root.tag.split("}")[-1] if "}" in root.tag else root.tag
-    if local_name != "speak":
-        print(f"Error: expected root element <speak>, got <{local_name}>.", file=sys.stderr)
+    if _local(root.tag) != "speak":
+        print(f"Error: expected root element <speak>, got <{_local(root.tag)}>.", file=sys.stderr)
         sys.exit(1)
 
+    voices = _find_voices_with_prosody(root, [])
+
     turns: list[SpeakerTurn] = []
-    index = 1
-
-    for child in root:
-        child_local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-        if child_local != "voice":
-            continue
-
-        voice_name = child.get("name", "")
+    for index, (voice_el, prosody_stack) in enumerate(voices, start=1):
+        voice_name = voice_el.get("name", "")
         if not voice_name:
             print(f"Error: <voice> element at turn {index} is missing a 'name' attribute.", file=sys.stderr)
             sys.exit(1)
 
-        ssml_chunk = _voice_to_ssml_chunk(child, extra_namespaces)
-        inner_xml = ET.tostring(child, encoding="unicode")
-        plain_text = _strip_tags(inner_xml)
-        speaker_name = _resolve_speaker_name(voice_name, voice_name_map)
+        plain_text = _strip_tags(ET.tostring(voice_el, encoding="unicode"))
+        speaker_name = voice_name_map.get(voice_name, voice_name)
+        label, spoken_text = _split_label(plain_text, speaker_name)
+
+        if label != speaker_name or plain_text.strip().startswith(f"{label}:"):
+            _strip_label_from_element(voice_el, label)
+
+        ssml_chunk = _voice_to_ssml_chunk(voice_el, prosody_stack)
 
         turns.append(
             SpeakerTurn(
@@ -117,9 +149,10 @@ def parse_ssml(raw_ssml: str, voice_name_map: dict[str, str]) -> list[SpeakerTur
                 speaker_name=speaker_name,
                 ssml_chunk=ssml_chunk,
                 plain_text=plain_text,
+                label=label,
+                spoken_text=spoken_text,
             )
         )
-        index += 1
 
     if not turns:
         print("Error: SSML contains no <voice> elements.", file=sys.stderr)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import http.client
 import os
 import sys
 import time
@@ -8,7 +9,7 @@ import urllib.error
 
 _TTS_URL = "https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
 _TOKEN_URL = "https://{region}.api.cognitive.microsoft.com/sts/v1.0/issuetoken"
-_MAX_RETRIES = 3
+_MAX_RETRIES = 8
 
 
 def _get_azure_config() -> tuple[str, str]:
@@ -68,6 +69,15 @@ def synthesize_turn(ssml_chunk: str, turn_index: int) -> bytes:
                 continue
             print(
                 f"Error: Azure TTS timed out at turn {turn_index}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        except (http.client.IncompleteRead, http.client.HTTPException) as e:
+            if attempt < _MAX_RETRIES:
+                time.sleep(min(3 * attempt, 10))
+                continue
+            print(
+                f"Error: Azure TTS response was truncated at turn {turn_index} — {e}",
                 file=sys.stderr,
             )
             sys.exit(1)
