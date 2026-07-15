@@ -1,5 +1,6 @@
 from __future__ import annotations
 import sys
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -7,6 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from synthetic_meetings.ssml.parser import parse_ssml, derive_transcript, SpeakerTurn
+from synthetic_meetings.ssml.vtt import build_vtt, build_speaker_vtt
 from synthetic_meetings.tts.azure_client import synthesize_turn
 from synthetic_meetings.audio.merger import wav_bytes_to_segment, build_speaker_tracks, merge_segments, export_wav_mp3
 from synthetic_meetings.exporter import Exporter
@@ -41,11 +43,20 @@ def _process_ssml_file(ssml_path: Path, output_base: Path) -> None:
 
     print("  Synthesizing audio via Azure TTS...")
     turns_with_audio: list[tuple[str, object]] = []
+    durations_ms: list[int] = []
     for turn in turns:
         print(f"    Turn {turn.index:03d} — {turn.voice_name}")
+        if turn.index > 1:
+            # Pace requests so Azure TTS doesn't throttle and drop connections
+            # mid-response (seen as IncompleteRead on rapid back-to-back turns).
+            time.sleep(0.8)
         wav_bytes = synthesize_turn(turn.ssml_chunk, turn.index)
         seg = wav_bytes_to_segment(wav_bytes)
         turns_with_audio.append((turn.voice_name, seg))
+        durations_ms.append(int(seg.duration_seconds * 1000))
+
+    print("  Writing VTT...")
+    exporter.save_vtt(build_vtt(turns, durations_ms))
 
     print("  Building speaker tracks...")
     speaker_tracks = build_speaker_tracks(turns_with_audio)
@@ -56,7 +67,8 @@ def _process_ssml_file(ssml_path: Path, output_base: Path) -> None:
 
     for idx, (voice_name, track) in enumerate(sorted(speaker_tracks.items()), start=1):
         speaker_ssml = _build_speaker_ssml(voice_name, voice_to_turns[voice_name])
-        exporter.save_speaker_track(idx, voice_name, track, speaker_ssml)
+        speaker_vtt = build_speaker_vtt(turns, durations_ms, voice_name)
+        exporter.save_speaker_track(idx, voice_name, track, speaker_ssml, speaker_vtt)
         print(f"    Speaker {idx}: {voice_name}")
 
     print("  Merging audio...")
@@ -92,8 +104,19 @@ def main() -> None:
 
     output_base = Path("output")
 
+    failures = []
     for ssml_path in targets:
-        _process_ssml_file(ssml_path, output_base)
+        try:
+            _process_ssml_file(ssml_path, output_base)
+        except SystemExit:
+            # One file failing (e.g. Azure dropped a connection) shouldn't
+            # abort the whole batch — log it and continue with the rest.
+            print(f"  Skipped {ssml_path.name} due to an error above.", file=sys.stderr)
+            failures.append(ssml_path.name)
+
+    if failures:
+        print(f"\nCompleted with {len(failures)} failed file(s): {', '.join(failures)}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -43,16 +43,23 @@ class Exporter:
         path.write_text(transcript, encoding="utf-8")
         return path
 
+    def save_vtt(self, vtt: str) -> Path:
+        path = self.output_dir / "meeting.vtt"
+        path.write_text(vtt, encoding="utf-8")
+        return path
+
     def save_speaker_track(
         self,
         index: int,
         voice_name: str,
         track: AudioSegment,
         ssml: str,
+        vtt: str,
     ) -> Path:
         label = _safe_voice_label(voice_name)
         wav_path = self.speakers_dir / f"speaker_{index}_{label}.wav"
         ssml_path = self.speakers_dir / f"speaker_{index}_{label}.ssml"
+        vtt_path = self.speakers_dir / f"speaker_{index}_{label}.vtt"
 
         try:
             track.export(str(wav_path), format="wav")
@@ -61,6 +68,7 @@ class Exporter:
             sys.exit(1)
 
         ssml_path.write_text(ssml, encoding="utf-8")
+        vtt_path.write_text(vtt, encoding="utf-8")
         self._speaker_paths.append(wav_path)
         return wav_path
 
@@ -75,6 +83,7 @@ class Exporter:
             "",
             f"  Output directory : {self.output_dir}",
             f"  SSML             : {self.output_dir / 'meeting.ssml'}",
+            f"  VTT              : {self.output_dir / 'meeting.vtt'}",
             f"  Transcript       : {self.output_dir / 'transcript.txt'}",
             f"  Speaker audio    : {self.speakers_dir}/",
             f"  Merged WAV       : {self.merged_wav_path()}",
